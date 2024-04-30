@@ -33,10 +33,19 @@ def process_shard(args, vocab_size):
     split_text = [sentence.strip() for sentence in data.replace('。', '\n').split('\n') if len(sentence.strip()) > 0]
     # 去除空白行
     split_text = [sentence for sentence in split_text if sentence]
+    origin_split_text = split_text
     new_splie_text=[]
-    for i in range(0, len(split_text), 4):
-        if(i + 3 < len(split_text)):
-            new_splie_text.append(split_text[i]+split_text[i+1] + split_text[i+2] + split_text[i+3])
+
+    merge_cnt = 7
+    for i in range(0, len(split_text), merge_cnt):
+        if(i + merge_cnt - 1 < len(split_text)):
+            merge_text = ""
+            for k in range(i, i+merge_cnt):
+                merge_text = merge_text + "，" + split_text[k]
+            
+            merge_text += "。"
+            new_splie_text.append(merge_text)
+            #new_splie_text.append(split_text[i]+split_text[i+1] + split_text[i+2] + split_text[i+3] + split_text[i+4])
     
     split_text = new_splie_text
     for text in split_text:
@@ -66,6 +75,30 @@ def process_shard(args, vocab_size):
     # write the bytes
     with open(tokenized_filename, "wb") as f:
         f.write(all_tokens.tobytes())
+
+    # write validate bin
+    validate_text = []
+    validate_tokens = []
+    for i in range(0, int(len(origin_split_text)/10), merge_cnt):
+        if(i + merge_cnt - 1 < len(origin_split_text)/10):
+            merge_text = ""
+            for k in range(i, i+merge_cnt):
+                merge_text = merge_text + "，" + origin_split_text[k]
+
+            merge_text += "。"
+            validate_text.append(merge_text)
+
+    for text in validate_text:
+        tokens = enc.encode(text, bos=True, eos=False)  # encode the text, use BOS
+        validate_tokens.extend(tokens)
+
+    # convert to uint16 nparray
+    validate_tokens = np.array(validate_tokens, dtype=np.uint16)
+
+    validate_file_name = shard.replace(".txt", "_val.bin")
+    with open(validate_file_name, "wb") as f:
+        f.write(validate_tokens.tobytes())
+
     # calculate the average sequence length (they are separated by BOS=1)
     avg_seq_len = all_tokens.size / ((all_tokens == 1).sum())
     print(f"Saved {tokenized_filename}, average seqlen: {avg_seq_len:.2f}")
@@ -131,7 +164,11 @@ class PretokDataset(torch.utils.data.IterableDataset):
             bin_dir = os.path.join(DATA_CACHE_DIR, f"tok{self.vocab_size}")
             shard_filenames = sorted(glob.glob(os.path.join(bin_dir, "*.bin")))
         # train/test split. let's use only shard 0 for test split, rest train
-        shard_filenames = shard_filenames[1:] if self.split == "train" else shard_filenames[:1]
+        #shard_filenames = shard_filenames[1:] if self.split == "train" else shard_filenames[:1]
+        if self.split == "train":
+            shard_filenames = [file for file in shard_filenames if file.find("_val")==-1]
+        else:
+            shard_filenames = [file for file in shard_filenames if file.find("_val")>=0]
         assert len(shard_filenames)>0, f"No bin files found in {bin_dir}"
         while True:
             rng.shuffle(shard_filenames)

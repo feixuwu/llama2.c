@@ -46,7 +46,7 @@ wandb_log = False  # disabled by default
 wandb_project = "llamac"
 wandb_run_name = "run" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 # data
-batch_size = 32  # if gradient_accumulation_steps > 1, this is the micro-batch size
+batch_size = 48  # if gradient_accumulation_steps > 1, this is the micro-batch size
 max_seq_len = 256
 vocab_source = "llama2" # llama2|custom; use Lllama 2 vocab from Meta, or custom trained
 vocab_size = 55296 # the Llama 2 tokenizer has 32K tokens
