@@ -35,7 +35,8 @@ from export import model_export
 # -----------------------------------------------------------------------------
 # I/O
 out_dir = "out"
-eval_interval = 2000
+#eval_interval = 2000
+eval_interval = 500
 log_interval = 1
 eval_iters = 100
 eval_only = False  # if True, script exits right after the first eval
@@ -46,28 +47,31 @@ wandb_log = False  # disabled by default
 wandb_project = "llamac"
 wandb_run_name = "run" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 # data
-batch_size = 48  # if gradient_accumulation_steps > 1, this is the micro-batch size
+batch_size = 32  # if gradient_accumulation_steps > 1, this is the micro-batch size
 max_seq_len = 256
 vocab_source = "llama2" # llama2|custom; use Lllama 2 vocab from Meta, or custom trained
 vocab_size = 55296 # the Llama 2 tokenizer has 32K tokens
 # model
-dim = 288
+#dim = 288
+dim = 384
 n_layers = 6
 n_heads = 6
 n_kv_heads = 6
 multiple_of = 32
-dropout = 0.0
+dropout = 0.1
 # adamw optimizer
 gradient_accumulation_steps = 4  # used to simulate larger batch sizes
 learning_rate = 5e-4  # max learning rate
-max_iters = 100000  # total number of training iterations
+#max_iters = 100000  # total number of training iterations
+max_iters = eval_interval * 2
 weight_decay = 1e-1
 beta1 = 0.9
 beta2 = 0.95
 grad_clip = 1.0  # clip gradients at this value, or disable if == 0.0
 # learning rate decay settings
 decay_lr = True  # whether to decay the learning rate
-warmup_iters = 1000  # how many steps to warm up for
+#warmup_iters = 1000  # how many steps to warm up for
+warmup_iters = int(max_iters/10)
 # system
 device = "cuda"  # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
 dtype = "bfloat16"  # float32|bfloat16|float16
@@ -129,6 +133,7 @@ ctx = (
     else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 )
 
+shard_index = 0
 # task-specific setup
 iter_batches = partial(
     Task.iter_batches,
@@ -136,6 +141,7 @@ iter_batches = partial(
     max_seq_len=max_seq_len,
     vocab_size=vocab_size,
     vocab_source=vocab_source,
+    shard_index=shard_index,
     device=device,
     num_workers=0,
 )
@@ -338,7 +344,27 @@ while True:
 
     # termination conditions
     if iter_num > max_iters:
-        break
+        shard_index = shard_index + 1
+        iter_batches = partial(
+            Task.iter_batches,
+            batch_size=batch_size,
+            max_seq_len=max_seq_len,
+            vocab_size=vocab_size,
+            vocab_source=vocab_source,
+            shard_index=shard_index,
+            device=device,
+            num_workers=0,
+        )
+
+        print(f"switch to next shard index:{shard_index}")
+        
+        train_batch_iter = iter_batches(split="train")
+        X, Y = next(train_batch_iter)  # fetch the very first batch
+        t0 = time.time()
+        local_iter_num = 0  # number of iterations in the lifetime of this process
+        iter_num = 0
+        if shard_index > 1000:
+            break
 
 if ddp:
     destroy_process_group()

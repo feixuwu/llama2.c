@@ -138,12 +138,13 @@ def pretokenize(vocab_size):
 class PretokDataset(torch.utils.data.IterableDataset):
     """Loads pretokenized examples from disk and yields them as PyTorch tensors."""
 
-    def __init__(self, split, max_seq_len, vocab_size, vocab_source):
+    def __init__(self, split, max_seq_len, vocab_size, vocab_source, shard_index):
         super().__init__()
         self.split = split
         self.max_seq_len = max_seq_len
         self.vocab_size = vocab_size
         self.vocab_source = vocab_source
+        self.shard_index = shard_index
 
     def __iter__(self):
         # get worker info within a DataLoader
@@ -165,11 +166,21 @@ class PretokDataset(torch.utils.data.IterableDataset):
             shard_filenames = sorted(glob.glob(os.path.join(bin_dir, "*.bin")))
         # train/test split. let's use only shard 0 for test split, rest train
         #shard_filenames = shard_filenames[1:] if self.split == "train" else shard_filenames[:1]
+        
+        # filter val bin files
+        shard_filenames = [file for file in shard_filenames if file.find("_val")==-1]
+        if self.shard_index >= 0:
+            assert len(shard_filenames)>0, f"No bin files found in {bin_dir}"
+            file_num = len(shard_filenames)
+            shard_filenames = shard_filenames[(self.shard_index%file_num):(self.shard_index%file_num+1)]
+
         if self.split == "train":
-            shard_filenames = [file for file in shard_filenames if file.find("_val")==-1]
+            pass
         else:
-            shard_filenames = [file for file in shard_filenames if file.find("_val")>=0]
+            shard_filenames = [file.replace(".bin", "_val.bin") for file in shard_filenames]
         assert len(shard_filenames)>0, f"No bin files found in {bin_dir}"
+
+        print(f"choose shard filenames:{shard_filenames}")
         while True:
             rng.shuffle(shard_filenames)
             for shard in shard_filenames:
