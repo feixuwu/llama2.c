@@ -1,0 +1,7 @@
+*.bin
+out/**
+data/**
+.vscode/**
+run
+runq
+__pycache__/**
